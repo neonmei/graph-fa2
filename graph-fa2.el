@@ -1,7 +1,7 @@
 ;;; graph-fa2.el --- ForceAtlas2 pure-elisp background-cached engine -*- lexical-binding: t -*-
 
 ;; Author: Elijah Charles
-;; Version: 0.0.1
+;; Version: 0.0.2
 
 (eval-when-compile
   (when (boundp 'comp-speed)
@@ -206,9 +206,12 @@ from the SVG string to pass the resolved node to subscribers."
 
     (when (and (>= adj-x 0) (<= adj-x min-dim)
                (>= adj-y 0) (<= adj-y min-dim))
-      (let* ((scale (/ graph-fa2--canvas-size min-dim))
-             (mouse-x (* adj-x scale))
-             (mouse-y (* adj-y scale))
+      (let* ((viewbox-dim (/ graph-fa2--canvas-size graph-fa2--scale))
+             (viewbox-x (- (/ graph-fa2--canvas-size 2.0) (/ viewbox-dim 2.0)))
+             (viewbox-y (- (/ graph-fa2--canvas-size 2.0) (/ viewbox-dim 2.0)))
+             (viewbox-scale (/ viewbox-dim min-dim))
+             (mouse-x (+ viewbox-x (* adj-x viewbox-scale)))
+             (mouse-y (+ viewbox-y (* adj-y viewbox-scale)))
              (nodes graph-fa2--active-hitboxes)
              (len (if nodes (length nodes) 0))
              (closest-node nil)
@@ -413,12 +416,10 @@ garbage collection pressure during background rendering."
     (nreverse lines)))
 
 (defun graph-fa2--render-empty (ctx)
-  "Render zero-node svg."
+  "Render zero-node SVG contents."
   (let ((gc-cons-threshold most-positive-fixnum))
     (with-current-buffer (graph-fa2-ctx-bg-buffer ctx)
-      (let* ((canvas-int (truncate 500.0))
-             (canvas (number-to-string canvas-int)))
-        (insert "<svg width=\"" canvas "\" height=\"" canvas "\" viewBox=\"0 0 " canvas " " canvas "\" xmlns=\"http://www.w3.org/2000/svg\">\n</svg>\n<FRAME_SPLIT>\n")))))
+      (insert "<FRAME_SPLIT>\n"))))
 
 (defun graph-fa2--compute-repulsion (ctx len a)
   "Compute repulsion between all active node pairs."
@@ -579,10 +580,7 @@ garbage collection pressure during background rendering."
          (hitboxes (make-vector len nil))
          (gc-cons-threshold most-positive-fixnum))
     (with-current-buffer (graph-fa2-ctx-bg-buffer ctx)
-      (let* ((canvas-int (truncate 500.0))
-             (half-canvas (truncate (/ 500.0 2.0)))
-             (canvas (number-to-string canvas-int)))
-        (insert "<svg width=\"" canvas "\" height=\"" canvas "\" viewBox=\"0 0 " canvas " " canvas "\" xmlns=\"http://www.w3.org/2000/svg\">\n")
+      (let* ((half-canvas (truncate (/ 500.0 2.0))))
         (dolist (edge edges)
           (when (and (< (car edge) len) (< (cdr edge) len))
             (let* ((u-idx (car edge))
@@ -616,7 +614,7 @@ garbage collection pressure during background rendering."
                 (cl-incf curr-y line-height)))
             (insert "  </text>\n")))
         (setq graph-fa2--active-hitboxes hitboxes)
-        (insert "</svg>\n<FRAME_SPLIT>\n")))))
+        (insert "<FRAME_SPLIT>\n")))))
 
 (defun graph-fa2--physics-tick (ctx max-frames)
   "Calculate ForceAtlas2 physics tick using pre-allocated arrays in CTX.
@@ -766,25 +764,35 @@ Synchronise buffers to state and trigger background rendering."
   (setq graph-fa2--scale 1.0)
   (graph-fa2--update-display))
 
-(defun graph-fa2--adjust-svg-dimensions (svg-string width height)
-  "Apply scaling factors to the SVG frame."
-  (if (string-match "<svg\\([^>]*?\\)>" svg-string)
-      (let* ((attrs (match-string 1 svg-string))
-             (clean-attrs (replace-regexp-in-string "[ \t\n\r]*\\(?:width\\|height\\)=\"[^\"]*\"" "" attrs)))
-        (replace-match (format "<svg width=\"%d\" height=\"%d\" preserveAspectRatio=\"xMidYMid meet\"%s>" width height clean-attrs) t t svg-string))
-    svg-string))
+(defun graph-fa2--grab-inner-elements (svg-string)
+  "Extract the inner elements from SVG-STRING.
+This removes any outer SVG tags to allow the viewBox attributes to
+be added directly during rendering."
+  (cond
+   ((string-match "<svg[^>]*>" svg-string)
+    (let ((start (match-end 0))
+          (end (string-match "</svg>" svg-string)))
+      (if end
+          (substring svg-string start end)
+        (substring svg-string start))))
+   (t svg-string)))
 
 (defun graph-fa2--update-display (&rest _)
   "Renders the current SVG frame into the buffer natively."
   (when (and graph-fa2-current-svg (get-buffer-window (current-buffer) t))
     (let* ((inhibit-read-only t)
            (win (get-buffer-window (current-buffer) t))
-           (width (max 100 (truncate (* (window-pixel-width win) graph-fa2--scale))))
-           (height (max 100 (truncate (* (window-pixel-height win) graph-fa2--scale))))
-           (sized-svg (graph-fa2--adjust-svg-dimensions graph-fa2-current-svg width height))
-           (encoded-svg (if (multibyte-string-p sized-svg)
-                            (encode-coding-string sized-svg 'utf-8)
-                          sized-svg)))
+           (width (max 100 (window-pixel-width win)))
+           (height (max 100 (window-pixel-height win)))
+           (inner-elements (graph-fa2--grab-inner-elements graph-fa2-current-svg))
+           (viewbox-dim (/ graph-fa2--canvas-size graph-fa2--scale))
+           (viewbox-x (- (/ graph-fa2--canvas-size 2.0) (/ viewbox-dim 2.0)))
+           (viewbox-y (- (/ graph-fa2--canvas-size 2.0) (/ viewbox-dim 2.0)))
+           (full-svg (format "<svg width=\"%d\" height=\"%d\" viewBox=\"%.2f %.2f %.2f %.2f\" xmlns=\"http://www.w3.org/2000/svg\" preserveAspectRatio=\"xMidYMid meet\">\n%s\n</svg>"
+                             width height viewbox-x viewbox-y viewbox-dim viewbox-dim inner-elements))
+           (encoded-svg (if (multibyte-string-p full-svg)
+                            (encode-coding-string full-svg 'utf-8)
+                          full-svg)))
       (clear-image-cache)
       (when (= (buffer-size) 0) (insert " "))
 
