@@ -72,6 +72,16 @@ Lower is more friction (stops faster), higher is 'slippery'."
   :type 'float
   :group 'graph-fa2)
 
+(defcustom graph-fa2-edge-colour "#585b70"
+  "Stroke colour, as a hex string, for graph edges."
+  :type 'string
+  :group 'graph-fa2)
+
+(defcustom graph-fa2-edge-width 2
+  "Stroke width, in SVG units, for graph edges."
+  :type 'number
+  :group 'graph-fa2)
+
 (defvar-local graph-fa2-node-clicked-functions nil
   "List of functions to be called when a graph node is clicked.
 Each function must accept one argument: the node identifier.")
@@ -876,7 +886,7 @@ garbage collection pressure during background rendering."
                    (uy (number-to-string (+ (ash (truncate (aref pos-y u-idx)) -8) half-canvas)))
                    (vx (number-to-string (+ (ash (truncate (aref pos-x v-idx)) -8) half-canvas)))
                    (vy (number-to-string (+ (ash (truncate (aref pos-y v-idx)) -8) half-canvas))))
-              (insert "  <line x1=\"" ux "\" y1=\"" uy "\" x2=\"" vx "\" y2=\"" vy "\" stroke=\"#585b70\" stroke-width=\"2\" />\n"))))
+              (insert "  <line x1=\"" ux "\" y1=\"" uy "\" x2=\"" vx "\" y2=\"" vy "\" stroke=\"" graph-fa2-edge-colour "\" stroke-width=\"" (number-to-string graph-fa2-edge-width) "\" />\n"))))
         (dotimes (i len)
           (let* ((n (aref nodes i))
                  (nx-int (+ (ash (truncate (aref pos-x i)) -8) half-canvas))
